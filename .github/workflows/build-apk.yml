@@ -52,7 +52,15 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace --info --no-configuration-cache -Porg.gradle.jvmargs="-Xmx3g"
+        run: |
+          # Optimize Gradle for GitHub Actions (2 cores, 7GB RAM limit)
+          echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> gradle.properties
+          echo "kotlin.daemon.jvmargs=-Xmx2g" >> gradle.properties
+          echo "org.gradle.parallel=false" >> gradle.properties
+          echo "org.gradle.workers.max=2" >> gradle.properties
+          
+          gradle assembleDebug --no-daemon --stacktrace --no-configuration-cache
+
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
