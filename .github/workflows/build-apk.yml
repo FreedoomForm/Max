@@ -24,14 +24,20 @@ jobs:
 
       - name: Setup Secrets and Keystore
         run: |
-          # Ensure .env exists for the secrets-gradle-plugin
-          if [ ! -f .env ]; then
-            if [ -f .env.example ]; then
-              cp .env.example .env
-            else
-              touch .env
-            fi
+          # Ensure .env exists for the secrets-gradle-plugin with the required keys
+          if [ -f .env.example ]; then
+            cp .env.example .env
+          else
+            touch .env
           fi
+          
+          # Force append the GEMINI_API_KEY to ensure compilation succeeds even if commented out in repo
+          echo "" >> .env
+          echo "GEMINI_API_KEY=MY_GEMINI_API_KEY" >> .env
+          
+          # Provide a mock google-services.json to satisfy the Google Services plugin
+          mkdir -p app
+          echo '{"project_info":{"project_number":"123456789","firebase_url":"https://mock.firebaseio.com","project_id":"mock-project","storage_bucket":"mock.appspot.com"},"client":[{"client_info":{"mobilesdk_app_id":"1:123456789:android:abcdef","android_client_info":{"package_name":"com.example"}},"oauth_client":[],"api_key":[{"current_key":"mock_key"}],"services":{"appinvite_service":{"other_platform_oauth_client":[]}}}]}' > app/google-services.json
 
           # Decode or generate debug.keystore
           if [ -f debug.keystore.base64 ]; then
