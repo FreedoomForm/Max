@@ -1,0 +1,7 @@
+{
+  "name": "AI Transcribe",
+  "description": "Continuous long-speech voice to text with Google AI styling, instant copy, and AI formatting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
