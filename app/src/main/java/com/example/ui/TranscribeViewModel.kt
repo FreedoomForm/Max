@@ -7,13 +7,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.ai.GeminiAiService
 import com.example.data.AppDatabase
 import com.example.data.TranscriptEntity
-import com.example.scraper.GoogleSearchAiVoiceEngine
-import com.example.scraper.GoogleVoiceState
 import com.example.speech.ContinuousSpeechManager
-import com.example.speech.SpeechSegment
 import com.example.speech.SpeechState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,7 +43,6 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     private val database = AppDatabase.getDatabase(application)
     private val transcriptDao = database.transcriptDao()
     private val speechManager = ContinuousSpeechManager(application)
-    private val geminiAiService = GeminiAiService()
 
     val availableLanguages = listOf(
         LanguageOption("Auto Detect", "default"),
@@ -65,14 +60,11 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     private val _currentTab = MutableStateFlow(AppTab.TRANSCRIBE)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
 
-    // Confirmed text accumulated so far
     private var confirmedTextBuffer: String = ""
 
-    // Main editable speech transcript text shown in UI
     private val _transcriptText = MutableStateFlow("")
     val transcriptText: StateFlow<String> = _transcriptText.asStateFlow()
 
-    // Live interim text while speaking (real-time streaming preview)
     private val _liveInterimText = MutableStateFlow("")
     val liveInterimText: StateFlow<String> = _liveInterimText.asStateFlow()
 
@@ -88,34 +80,12 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     private val _uiMessage = MutableStateFlow<UiMessage?>(null)
     val uiMessage: StateFlow<UiMessage?> = _uiMessage.asStateFlow()
 
-    private val _isAiProcessing = MutableStateFlow(false)
-    val isAiProcessing: StateFlow<Boolean> = _isAiProcessing.asStateFlow()
-
-    // Google Search AI Mode (udm=50) Voice Engine with auto-reconnect
-    val googleVoiceEngine = GoogleSearchAiVoiceEngine(
-        context = application,
-        coroutineScope = viewModelScope,
-        onChunkFinalized = { finalizedChunk ->
-            handleFinalizedChunk(finalizedChunk)
-        },
-        onInterimText = { interim ->
-            if (_isRecording.value) {
-                _liveInterimText.value = interim
-                syncDisplayTranscript()
-            }
-        }
-    )
-
-    val googleVoiceState = googleVoiceEngine.voiceState
-    val googleEngineStatus = googleVoiceEngine.engineStatus
-
     val savedTranscripts: StateFlow<List<TranscriptEntity>> = transcriptDao.getAllTranscripts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var timerJob: Job? = null
 
     init {
-        // Collect real-time speech segments from native recognizer to give instant word-by-word streaming
         viewModelScope.launch {
             speechManager.partialText.collect { partial ->
                 if (_isRecording.value) {
@@ -157,7 +127,6 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
                 return
             }
 
-            // Check overlap between end of buf and start of clean
             var bestOverlap = 0
             val maxOverlapLength = minOf(buf.length, clean.length)
             for (len in maxOverlapLength downTo 1) {
@@ -197,7 +166,6 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectLanguage(language: LanguageOption) {
         _selectedLanguage.value = language
-        googleVoiceEngine.setLanguage(language.code)
         if (_isRecording.value) {
             speechManager.startListening(language.code)
         }
@@ -223,22 +191,15 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         _liveInterimText.value = ""
         startTimer()
 
-        // 1. Start Web Speech API (webkitSpeechRecognition) engine
-        googleVoiceEngine.startVoiceRecognition(_selectedLanguage.value.code)
-
-        // 2. Start local live streaming engine for instant zero-latency word-by-word streaming
         speechManager.startListening(_selectedLanguage.value.code)
-
-        showMessage("Voice recognition active. Speak freely!")
+        showMessage("Voice typing active. Speak clearly!")
     }
 
     private fun stopRecording() {
         _isRecording.value = false
         stopTimer()
-        googleVoiceEngine.stopVoiceRecognition()
         speechManager.stopListening()
 
-        // Commit any remaining live words into confirmed buffer
         val interim = _liveInterimText.value.trim()
         if (interim.isNotBlank()) {
             if (confirmedTextBuffer.isBlank()) {
@@ -249,7 +210,7 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         }
         _liveInterimText.value = ""
         _transcriptText.value = confirmedTextBuffer
-        showMessage("Voice recording finished")
+        showMessage("Voice recording stopped")
     }
 
     fun saveTranscriptToHistory(customTitle: String? = null) {
@@ -307,65 +268,6 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun formatCurrentTranscript() {
-        val currentText = _transcriptText.value.trim()
-        if (currentText.isBlank()) {
-            showMessage("No text to format with AI!")
-            return
-        }
-
-        viewModelScope.launch {
-            _isAiProcessing.value = true
-            showMessage("AI is formatting text...")
-            val result = geminiAiService.formatAndPunctuate(currentText)
-            _isAiProcessing.value = false
-            result.onSuccess { formatted ->
-                updateTranscriptText(formatted)
-                showMessage("AI Formatting complete!")
-            }.onFailure { err ->
-                showMessage("AI Formatting failed: ${err.message}")
-            }
-        }
-    }
-
-    fun formatHistoryTranscript(transcript: TranscriptEntity) {
-        val rawText = transcript.rawContent.trim()
-        if (rawText.isBlank()) return
-
-        viewModelScope.launch {
-            _isAiProcessing.value = true
-            showMessage("AI is formatting '${transcript.title}'...")
-            val result = geminiAiService.formatAndPunctuate(rawText)
-            _isAiProcessing.value = false
-            result.onSuccess { formatted ->
-                val updated = transcript.copy(formattedContent = formatted)
-                transcriptDao.updateTranscript(updated)
-                showMessage("AI Formatting complete!")
-            }.onFailure { err ->
-                showMessage("AI Formatting failed: ${err.message}")
-            }
-        }
-    }
-
-    fun summarizeHistoryTranscript(transcript: TranscriptEntity) {
-        val rawText = transcript.formattedContent ?: transcript.rawContent
-        if (rawText.isBlank()) return
-
-        viewModelScope.launch {
-            _isAiProcessing.value = true
-            showMessage("AI is generating summary...")
-            val result = geminiAiService.generateSummary(rawText)
-            _isAiProcessing.value = false
-            result.onSuccess { summaryText ->
-                val updated = transcript.copy(summary = summaryText)
-                transcriptDao.updateTranscript(updated)
-                showMessage("AI Summary created!")
-            }.onFailure { err ->
-                showMessage("AI Summary failed: ${err.message}")
-            }
-        }
-    }
-
     fun updateTranscriptTitle(transcript: TranscriptEntity, newTitle: String) {
         val cleanTitle = newTitle.trim()
         if (cleanTitle.isBlank()) return
@@ -385,7 +287,7 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         }
 
         val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Google AI Voice to Text", text)
+        val clip = ClipData.newPlainText("Voice to Text", text)
         clipboard.setPrimaryClip(clip)
         showMessage("Copied text to clipboard!")
     }
