@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Icon
@@ -46,7 +45,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,15 +60,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.AppTab
 import com.example.ui.TranscribeViewModel
+import com.example.ui.components.CaptchaResolutionDialog
 import com.example.ui.components.TopHeader
-import com.example.ui.screens.AiSearchScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.LiveTranscribeScreen
 import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.PrimaryBlueContainer
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,20 +86,17 @@ fun MainAppScreen(
     viewModel: TranscribeViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val currentTab by viewModel.currentTab.collectAsState()
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val transcriptText by viewModel.transcriptText.collectAsState()
+    val isRecording by viewModel.isRecording.collectAsState()
     val speechState by viewModel.speechState.collectAsState()
-    val confirmedSegments by viewModel.confirmedSegments.collectAsState()
-    val partialText by viewModel.partialText.collectAsState()
     val rmsVolume by viewModel.rmsVolume.collectAsState()
     val elapsedSeconds by viewModel.elapsedSeconds.collectAsState()
-    val formattedAiText by viewModel.formattedAiText.collectAsState()
-    val aiSummary by viewModel.aiSummary.collectAsState()
-    val isAiLoading by viewModel.isAiLoading.collectAsState()
-    val engineMode by viewModel.engineMode.collectAsState()
+    val engineStatus by viewModel.googleEngineStatus.collectAsState()
+    val isCaptchaShowing by viewModel.googleVoiceEngine.isCaptchaShowing.collectAsState()
     val savedTranscripts by viewModel.savedTranscripts.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
 
@@ -132,6 +126,22 @@ fun MainAppScreen(
             )
             viewModel.clearUiMessage()
         }
+    }
+
+    // Interactive Security/Captcha dialog when Google prompts a verification
+    if (isCaptchaShowing) {
+        CaptchaResolutionDialog(
+            webView = viewModel.googleVoiceEngine.webView,
+            onSolved = {
+                viewModel.googleVoiceEngine.dismissCaptchaSolved()
+            },
+            onReload = {
+                viewModel.googleVoiceEngine.reloadEngine()
+            },
+            onDismiss = {
+                viewModel.googleVoiceEngine.dismissCaptchaSolved()
+            }
+        )
     }
 
     Scaffold(
@@ -165,16 +175,13 @@ fun MainAppScreen(
                 when (tab) {
                     AppTab.TRANSCRIBE -> {
                         LiveTranscribeScreen(
+                            transcriptText = transcriptText,
+                            onTranscriptTextChange = { viewModel.updateTranscriptText(it) },
+                            isRecording = isRecording,
                             speechState = speechState,
-                            confirmedSegments = confirmedSegments,
-                            partialText = partialText,
                             rmsVolume = rmsVolume,
                             elapsedSeconds = elapsedSeconds,
-                            formattedAiText = formattedAiText,
-                            aiSummary = aiSummary,
-                            isAiLoading = isAiLoading,
-                            engineMode = engineMode,
-                            onSelectEngineMode = { viewModel.setEngineMode(it) },
+                            engineStatus = engineStatus,
                             onToggleRecording = {
                                 if (hasAudioPermission) {
                                     viewModel.toggleRecording()
@@ -182,23 +189,11 @@ fun MainAppScreen(
                                     permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                 }
                             },
-                            onClearTranscript = { viewModel.clearCurrentTranscript() },
-                            onCopyTranscript = { viewModel.copyToClipboard(it) },
-                            onShareTranscript = { viewModel.shareTranscript(it) },
-                            onTriggerAiFormat = { viewModel.triggerAiFormat() },
-                            onTriggerAiSummary = { viewModel.triggerAiSummary() },
-                            onSearchGoogleAi = { viewModel.searchCurrentTranscriptInGoogleAi() },
-                            onSaveTranscript = { viewModel.stopAndSaveRecording() },
-                            onSimulateDictation = { viewModel.simulateLongDictation() },
+                            onClearTranscript = { viewModel.clearTranscript() },
+                            onCopyTranscript = { viewModel.copyToClipboard() },
+                            onShareTranscript = { viewModel.shareTranscript() },
+                            onSaveTranscript = { viewModel.saveTranscriptToHistory() },
                             formatTime = { viewModel.formatTime(it) }
-                        )
-                    }
-                    AppTab.AI_SEARCH -> {
-                        AiSearchScreen(
-                            scraper = viewModel.googleScraper,
-                            currentTranscriptText = viewModel.getFullTranscriptText(),
-                            onCopyText = { viewModel.copyToClipboard(it) },
-                            onShareText = { viewModel.shareTranscript(it) }
                         )
                     }
                     AppTab.HISTORY -> {
@@ -206,8 +201,8 @@ fun MainAppScreen(
                             savedTranscripts = savedTranscripts,
                             onLoadTranscript = { viewModel.loadTranscriptIntoEditor(it) },
                             onDeleteTranscript = { viewModel.deleteSavedTranscript(it) },
-                            onCopyText = { viewModel.copyToClipboard(it) },
-                            onShareText = { viewModel.shareTranscript(it) },
+                            onCopyText = { viewModel.copyToClipboard() },
+                            onShareText = { viewModel.shareTranscript() },
                             formatTime = { viewModel.formatTime(it) }
                         )
                     }
@@ -237,24 +232,16 @@ fun AppBottomNavigationBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 8.dp),
+                .padding(horizontal = 32.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavBarItem(
                 icon = Icons.Default.Mic,
-                label = "Transcribe",
+                label = "Speech to Text",
                 isSelected = currentTab == AppTab.TRANSCRIBE,
                 onClick = { onSelectTab(AppTab.TRANSCRIBE) },
                 testTag = "nav_transcribe"
-            )
-
-            NavBarItem(
-                icon = Icons.Default.AutoAwesome,
-                label = "Google AI Search",
-                isSelected = currentTab == AppTab.AI_SEARCH,
-                onClick = { onSelectTab(AppTab.AI_SEARCH) },
-                testTag = "nav_ai_search"
             )
 
             NavBarItem(
@@ -269,31 +256,28 @@ fun AppBottomNavigationBar(
 }
 
 @Composable
-fun NavBarItem(
+private fun NavBarItem(
     icon: ImageVector,
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
     testTag: String
 ) {
-    val activeColor = PrimaryBlue
-    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    val activeColor = GoogleBlue
+    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-    Column(
+    Surface(
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 4.dp)
             .testTag(testTag),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        color = if (isSelected) PrimaryBlueContainer.copy(alpha = 0.4f) else Color.Transparent,
+        shape = RoundedCornerShape(16.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isSelected) PrimaryBlueContainer else Color.Transparent)
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Icon(
                 imageVector = icon,
@@ -301,13 +285,13 @@ fun NavBarItem(
                 tint = if (isSelected) activeColor else inactiveColor,
                 modifier = Modifier.size(22.dp)
             )
+
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                color = if (isSelected) activeColor else inactiveColor
+            )
         }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            color = if (isSelected) activeColor else inactiveColor,
-            fontSize = 11.sp
-        )
     }
 }
