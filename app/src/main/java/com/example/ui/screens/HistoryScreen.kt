@@ -26,18 +26,21 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -73,11 +76,17 @@ fun HistoryScreen(
     onDeleteTranscript: (TranscriptEntity) -> Unit,
     onCopyText: (String) -> Unit,
     onShareText: (String) -> Unit,
+    onAiFormatTranscript: (TranscriptEntity) -> Unit = {},
+    onAiSummarizeTranscript: (TranscriptEntity) -> Unit = {},
+    onRenameTitle: (TranscriptEntity, String) -> Unit = { _, _ -> },
+    isAiProcessing: Boolean = false,
     formatTime: (Long) -> String,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var itemToDelete by remember { mutableStateOf<TranscriptEntity?>(null) }
+    var itemToRename by remember { mutableStateOf<TranscriptEntity?>(null) }
+    var renameInputText by remember { mutableStateOf("") }
 
     val filteredTranscripts = remember(savedTranscripts, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -226,6 +235,13 @@ fun HistoryScreen(
                         onDelete = { itemToDelete = transcript },
                         onCopy = { onCopyText(transcript.formattedContent ?: transcript.rawContent) },
                         onShare = { onShareText(transcript.formattedContent ?: transcript.rawContent) },
+                        onAiFormat = { onAiFormatTranscript(transcript) },
+                        onAiSummarize = { onAiSummarizeTranscript(transcript) },
+                        onRenameClick = {
+                            itemToRename = transcript
+                            renameInputText = transcript.title
+                        },
+                        isAiProcessing = isAiProcessing,
                         formatTime = formatTime
                     )
                 }
@@ -234,6 +250,40 @@ fun HistoryScreen(
                 }
             }
         }
+    }
+
+    // Rename title dialog
+    itemToRename?.let { transcript ->
+        AlertDialog(
+            onDismissRequest = { itemToRename = null },
+            title = { Text("Rename Title") },
+            text = {
+                OutlinedTextField(
+                    value = renameInputText,
+                    onValueChange = { renameInputText = it },
+                    label = { Text("Title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (renameInputText.isNotBlank()) {
+                            onRenameTitle(transcript, renameInputText)
+                        }
+                        itemToRename = null
+                    }
+                ) {
+                    Text("Save", color = GoogleBlue, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToRename = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Delete confirmation dialog
@@ -269,6 +319,10 @@ private fun TranscriptCard(
     onDelete: () -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit,
+    onAiFormat: () -> Unit,
+    onAiSummarize: () -> Unit,
+    onRenameClick: () -> Unit,
+    isAiProcessing: Boolean,
     formatTime: (Long) -> String,
     modifier: Modifier = Modifier
 ) {
@@ -301,14 +355,28 @@ private fun TranscriptCard(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = transcript.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = if (expanded) Int.MAX_VALUE else 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = transcript.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = if (expanded) Int.MAX_VALUE else 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        IconButton(
+                            onClick = onRenameClick,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DriveFileRenameOutline,
+                                contentDescription = "Rename Title",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = dateString,
@@ -455,6 +523,49 @@ private fun TranscriptCard(
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp
             )
+
+            // AI Action Buttons when expanded
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onAiFormat,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = GoogleBlue,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (transcript.formattedContent != null) "Re-format AI" else "Format with AI",
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    OutlinedButton(
+                        onClick = onAiSummarize,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Summarize,
+                            contentDescription = null,
+                            tint = GoogleGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (transcript.summary != null) "Re-summarize" else "AI Summary",
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
 
             // AI Summary section if available and expanded
             if (expanded && !transcript.summary.isNullOrBlank()) {

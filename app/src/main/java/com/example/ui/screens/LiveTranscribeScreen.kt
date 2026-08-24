@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +70,8 @@ fun LiveTranscribeScreen(
     onCopyTranscript: () -> Unit,
     onShareTranscript: () -> Unit,
     onSaveTranscript: () -> Unit,
+    onAiFormatTranscript: () -> Unit = {},
+    isAiProcessing: Boolean = false,
     formatTime: (Long) -> String,
     modifier: Modifier = Modifier
 ) {
@@ -175,6 +179,26 @@ fun LiveTranscribeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (transcriptText.isNotBlank()) {
+                            if (isAiProcessing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = GoogleBlue
+                                )
+                            } else {
+                                IconButton(
+                                    onClick = onAiFormatTranscript,
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "AI Format & Punctuate",
+                                        tint = GoogleBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
                             IconButton(
                                 onClick = onCopyTranscript,
                                 modifier = Modifier.size(36.dp)

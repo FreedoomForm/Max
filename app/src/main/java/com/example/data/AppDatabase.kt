@@ -19,7 +19,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "ai_transcribe_database"
-                ).fallbackToDestructiveMigration().build()
+                )
+                .allowMainThreadQueries()
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }
