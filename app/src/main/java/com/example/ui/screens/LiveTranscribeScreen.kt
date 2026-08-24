@@ -71,6 +71,8 @@ fun LiveTranscribeScreen(
     formattedAiText: String?,
     aiSummary: String?,
     isAiLoading: Boolean,
+    engineMode: com.example.ui.VoiceEngineMode = com.example.ui.VoiceEngineMode.GOOGLE_AI_SEARCH,
+    onSelectEngineMode: (com.example.ui.VoiceEngineMode) -> Unit = {},
     onToggleRecording: () -> Unit,
     onClearTranscript: () -> Unit,
     onCopyTranscript: (String) -> Unit,
@@ -599,10 +601,84 @@ fun LiveTranscribeScreen(
             }
         }
 
+        // Engine Mode Switch Selector (Google AI Mode vs Continuous Dictation)
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+            modifier = Modifier
+                .padding(vertical = 4.dp)
+                .testTag("engine_mode_selector")
+        ) {
+            Row(
+                modifier = Modifier.padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Option 1: Google AI Mode
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (engineMode == com.example.ui.VoiceEngineMode.GOOGLE_AI_SEARCH) PrimaryBlue else Color.Transparent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onSelectEngineMode(com.example.ui.VoiceEngineMode.GOOGLE_AI_SEARCH) }
+                        .testTag("mode_google_ai_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = if (engineMode == com.example.ui.VoiceEngineMode.GOOGLE_AI_SEARCH) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Google AI Mode",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (engineMode == com.example.ui.VoiceEngineMode.GOOGLE_AI_SEARCH) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Option 2: Continuous Speech Engine
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = if (engineMode == com.example.ui.VoiceEngineMode.CONTINUOUS_NATIVE) PrimaryBlue else Color.Transparent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onSelectEngineMode(com.example.ui.VoiceEngineMode.CONTINUOUS_NATIVE) }
+                        .testTag("mode_continuous_native_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = if (engineMode == com.example.ui.VoiceEngineMode.CONTINUOUS_NATIVE) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Continuous Native",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (engineMode == com.example.ui.VoiceEngineMode.CONTINUOUS_NATIVE) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
         // Bottom Section: Google Glowing Microphone Button
         Box(
             modifier = Modifier
-                .padding(vertical = 10.dp),
+                .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             GoogleMicButton(
@@ -614,9 +690,10 @@ fun LiveTranscribeScreen(
 
         Text(
             text = when {
+                engineMode == com.example.ui.VoiceEngineMode.GOOGLE_AI_SEARCH -> "Tap Google Mic to speak directly into Google Search AI Mode (udm=50)"
                 isListening -> "Listening... Tap to pause"
                 isPaused -> "Recording paused. Tap to resume"
-                else -> "Tap Google Mic to speak"
+                else -> "Tap Google Mic for continuous dictation"
             },
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium,

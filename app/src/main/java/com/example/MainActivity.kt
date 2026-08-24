@@ -102,6 +102,7 @@ fun MainAppScreen(
     val formattedAiText by viewModel.formattedAiText.collectAsState()
     val aiSummary by viewModel.aiSummary.collectAsState()
     val isAiLoading by viewModel.isAiLoading.collectAsState()
+    val engineMode by viewModel.engineMode.collectAsState()
     val savedTranscripts by viewModel.savedTranscripts.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
 
@@ -172,6 +173,8 @@ fun MainAppScreen(
                             formattedAiText = formattedAiText,
                             aiSummary = aiSummary,
                             isAiLoading = isAiLoading,
+                            engineMode = engineMode,
+                            onSelectEngineMode = { viewModel.setEngineMode(it) },
                             onToggleRecording = {
                                 if (hasAudioPermission) {
                                     viewModel.toggleRecording()

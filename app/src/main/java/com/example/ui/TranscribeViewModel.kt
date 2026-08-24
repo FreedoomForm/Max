@@ -31,6 +31,11 @@ data class LanguageOption(
     val code: String
 )
 
+enum class VoiceEngineMode(val title: String, val description: String) {
+    GOOGLE_AI_SEARCH("Google AI Mode", "udm=50 Headless Browser Engine"),
+    CONTINUOUS_NATIVE("Continuous Dictation", "Android Speech Engine")
+}
+
 enum class AppTab {
     TRANSCRIBE,
     HISTORY,
@@ -64,6 +69,9 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _selectedLanguage = MutableStateFlow(availableLanguages[0])
     val selectedLanguage: StateFlow<LanguageOption> = _selectedLanguage.asStateFlow()
+
+    private val _engineMode = MutableStateFlow(VoiceEngineMode.GOOGLE_AI_SEARCH)
+    val engineMode: StateFlow<VoiceEngineMode> = _engineMode.asStateFlow()
 
     private val _currentTab = MutableStateFlow(AppTab.TRANSCRIBE)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
@@ -114,19 +122,37 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun setEngineMode(mode: VoiceEngineMode) {
+        _engineMode.value = mode
+        showMessage("Switched to ${mode.title}")
+    }
+
     fun toggleRecording() {
-        when (speechState.value) {
-            is SpeechState.Listening -> {
-                speechManager.pauseListening()
-                stopTimer()
+        if (_engineMode.value == VoiceEngineMode.GOOGLE_AI_SEARCH) {
+            // Headless Google Search AI Mode Engine
+            val curText = getFullTranscriptText().trim()
+            if (curText.isNotBlank()) {
+                googleScraper.searchAndScrapeAiMode(curText)
+                selectTab(AppTab.AI_SEARCH)
+            } else {
+                googleScraper.triggerGoogleVoiceMicInBrowser()
+                selectTab(AppTab.AI_SEARCH)
             }
-            is SpeechState.Paused -> {
-                speechManager.resumeListening()
-                startTimer()
-            }
-            else -> {
-                speechManager.startListening(_selectedLanguage.value.code)
-                startTimer()
+        } else {
+            // Native Continuous Speech Engine
+            when (speechState.value) {
+                is SpeechState.Listening -> {
+                    speechManager.pauseListening()
+                    stopTimer()
+                }
+                is SpeechState.Paused -> {
+                    speechManager.resumeListening()
+                    startTimer()
+                }
+                else -> {
+                    speechManager.startListening(_selectedLanguage.value.code)
+                    startTimer()
+                }
             }
         }
     }
