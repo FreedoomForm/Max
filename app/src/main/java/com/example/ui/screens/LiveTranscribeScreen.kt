@@ -237,7 +237,7 @@ fun LiveTranscribeScreen(
                         .testTag("transcript_input_field"),
                     placeholder = {
                         Text(
-                            text = "Tap the Google microphone below and start speaking.\n\nYour speech will be converted to text via Google Search AI Mode (udm=50).",
+                            text = "Tap the Gemini microphone below and start speaking.\n\nYour speech is transcribed in real-time via Google Gemini (gemini.google.com/app).",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             lineHeight = 24.sp
@@ -296,7 +296,7 @@ fun LiveTranscribeScreen(
                     modifier = Modifier.size(7.dp)
                 ) {}
                 Text(
-                    text = if (isRecording) "google.com/search?udm=50 • Continuous Active" else "Engine: google.com/search?udm=50",
+                    text = if (isRecording) "gemini.google.com/app • Live Voice Active" else "Engine: gemini.google.com/app",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRecording) GoogleBlue else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Medium,

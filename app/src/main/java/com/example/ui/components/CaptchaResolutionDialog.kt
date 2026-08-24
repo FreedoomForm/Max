@@ -100,13 +100,13 @@ fun CaptchaResolutionDialog(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Google Security Verification",
+                            text = "Gemini / Google Verification",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Solve the captcha below to resume voice recognition",
+                            text = "Complete the check or sign in to activate Gemini voice mic",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

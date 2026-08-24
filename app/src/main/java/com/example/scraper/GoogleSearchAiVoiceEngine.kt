@@ -30,16 +30,22 @@ sealed class GoogleVoiceState {
     data class Listening(val recognizedText: String = "") : GoogleVoiceState()
     object Reconnecting : GoogleVoiceState()
     object CaptchaDetected : GoogleVoiceState()
+    object LoginRequired : GoogleVoiceState()
     data class Error(val message: String) : GoogleVoiceState()
 }
 
+/**
+ * High-performance Voice to Text Engine leveraging Google Gemini web (gemini.google.com/app)
+ * with automatic fallback to Google AI Search (udm=50), stealth anti-detection,
+ * and live text stream observation from Gemini's rich input editor.
+ */
 class GoogleSearchAiVoiceEngine(
     private val context: Context,
     private val coroutineScope: CoroutineScope,
     private val onChunkFinalized: (String) -> Unit,
     private val onInterimText: (String) -> Unit
 ) {
-    private val tag = "GoogleAiVoiceEngine"
+    private val tag = "GeminiVoiceEngine"
     private val mainHandler = Handler(Looper.getMainLooper())
     var webView: WebView? = null
         private set
@@ -47,7 +53,7 @@ class GoogleSearchAiVoiceEngine(
     private val _voiceState = MutableStateFlow<GoogleVoiceState>(GoogleVoiceState.Initializing)
     val voiceState: StateFlow<GoogleVoiceState> = _voiceState.asStateFlow()
 
-    private val _engineStatus = MutableStateFlow("Google AI Mode (udm=50) Initializing...")
+    private val _engineStatus = MutableStateFlow("Gemini AI (gemini.google.com/app) Initializing...")
     val engineStatus: StateFlow<String> = _engineStatus.asStateFlow()
 
     private val _isCaptchaShowing = MutableStateFlow(false)
@@ -57,8 +63,9 @@ class GoogleSearchAiVoiceEngine(
     private var lastExtractedText = ""
     private var isPageReady = false
 
-    // Direct Google Search AI Mode URL with parameters from Python reference
-    private val AI_MODE_URL = "https://www.google.com/search?q=&sourceid=chrome&ie=UTF-8&udm=50&aep=48&cud=0"
+    // Target URL: Gemini Web App directly as requested by user
+    private val GEMINI_APP_URL = "https://gemini.google.com/app"
+    private val GOOGLE_SEARCH_AI_URL = "https://www.google.com/search?q=&sourceid=chrome&ie=UTF-8&udm=50&aep=48&cud=0"
 
     init {
         mainHandler.post {
@@ -69,7 +76,7 @@ class GoogleSearchAiVoiceEngine(
     @SuppressLint("SetJavaScriptEnabled")
     private fun initStealthEngine() {
         try {
-            // Setup Cookie Manager with third-party cookie support
+            // Setup Cookie Manager with persistent session support for Gemini / Google Account
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
 
@@ -79,7 +86,7 @@ class GoogleSearchAiVoiceEngine(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
 
-                // Enhanced stealth WebSettings matching Python reference
+                // Advanced stealth WebSettings matching realistic Chrome mobile
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
@@ -92,8 +99,10 @@ class GoogleSearchAiVoiceEngine(
                     setSupportZoom(false)
                     builtInZoomControls = false
                     displayZoomControls = false
+                    allowFileAccess = false
+                    allowContentAccess = false
 
-                    // Modern desktop / mobile realistic Chrome User-Agent
+                    // Realistic modern Android Chrome browser User-Agent
                     userAgentString =
                         "Mozilla/5.0 (Linux; Android 14; Mobile; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
                 }
@@ -103,30 +112,43 @@ class GoogleSearchAiVoiceEngine(
 
                 webChromeClient = object : WebChromeClient() {
                     override fun onPermissionRequest(request: PermissionRequest?) {
-                        // Grant all requested permissions (microphones, audio, notifications)
+                        // Automatically grant microphone permissions to gemini.google.com
                         request?.grant(request.resources)
-                        _engineStatus.value = "Microphone access granted to Google AI Mode"
+                        _engineStatus.value = "Microphone access granted to Gemini"
                     }
                 }
 
                 webViewClient = object : WebViewClient() {
                     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                         isPageReady = false
-                        _engineStatus.value = "Connecting to google.com/search?udm=50..."
-                        // Inject stealth script before page loads
+                        val cleanUrl = url ?: ""
+                        if (cleanUrl.contains("gemini.google.com")) {
+                            _engineStatus.value = "Connecting to gemini.google.com/app..."
+                        } else if (cleanUrl.contains("accounts.google.com")) {
+                            _engineStatus.value = "Google Login / Verification required"
+                            _voiceState.value = GoogleVoiceState.LoginRequired
+                        } else {
+                            _engineStatus.value = "Connecting to Google AI Engine..."
+                        }
                         injectStealthScript()
                     }
 
                     override fun onPageFinished(view: WebView?, url: String?) {
                         isPageReady = true
-                        _engineStatus.value = "Google AI Mode Engine Ready"
-                        if (_voiceState.value !is GoogleVoiceState.CaptchaDetected) {
-                            _voiceState.value = GoogleVoiceState.Ready
-                        }
+                        val currentUrl = url ?: ""
                         
-                        // Inject anti-detection & consent bypass
+                        if (currentUrl.contains("gemini.google.com")) {
+                            _engineStatus.value = "Gemini Voice Engine Ready"
+                            if (_voiceState.value !is GoogleVoiceState.CaptchaDetected) {
+                                _voiceState.value = GoogleVoiceState.Ready
+                            }
+                        } else if (currentUrl.contains("accounts.google.com")) {
+                            _engineStatus.value = "Google Login needed. Tap Security/Login dialog."
+                        }
+
+                        // Inject anti-detection, consent bypass, and Gemini voice observer
                         injectStealthScript()
-                        injectGoogleVoiceBridge()
+                        injectGeminiVoiceBridge()
                         checkForCaptcha()
 
                         if (isListeningActive) {
@@ -144,7 +166,7 @@ class GoogleSearchAiVoiceEngine(
                     }
                 }
 
-                loadUrl(AI_MODE_URL)
+                loadUrl(GEMINI_APP_URL)
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to initialize WebView", e)
@@ -154,11 +176,7 @@ class GoogleSearchAiVoiceEngine(
     }
 
     /**
-     * Enhanced stealth injection inspired by the Python reference:
-     * - Disables webdriver flags
-     * - Mocks navigator.plugins & languages
-     * - Fixes window.chrome detection
-     * - Auto-resolves notification permissions
+     * Enhanced stealth injection to avoid bot detection on Gemini
      */
     private fun injectStealthScript() {
         val stealthJs = """
@@ -166,7 +184,7 @@ class GoogleSearchAiVoiceEngine(
                 try {
                     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
                     Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en', 'ru', 'uz'] });
+                    Object.defineProperty(navigator, 'languages', { get: () => ['uz-UZ', 'en-US', 'ru-RU', 'en'] });
                     
                     window.chrome = {
                         runtime: {},
@@ -192,49 +210,64 @@ class GoogleSearchAiVoiceEngine(
         }
     }
 
-    private fun injectGoogleVoiceBridge() {
+    /**
+     * Injects observer and hooks for Gemini Voice dictation (rich-textarea, mic button)
+     */
+    private fun injectGeminiVoiceBridge() {
         val script = """
             (function() {
-                // 1. Comprehensive Cookie / Consent Auto-Handler (Accept all, I agree, etc.)
+                // 1. Auto handle consent/cookie popups
                 try {
-                    var cookieSelectors = [
-                        '//button[contains(., "Accept all")]',
-                        '//button[contains(., "I agree")]',
-                        '//button[@id="L2AGLb"]',
-                        '//button[contains(., "Roziman")]',
-                        '//button[contains(., "Принять все")]',
-                        '//button[contains(., "Согласен")]',
-                        '//button[contains(., "Qabul qilish")]'
-                    ];
-
-                    for (var s = 0; s < cookieSelectors.length; s++) {
-                        var xpathResult = document.evaluate(cookieSelectors[s], document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-                        if (xpathResult && xpathResult.singleNodeValue) {
-                            xpathResult.singleNodeValue.click();
+                    var cookieButtons = document.querySelectorAll('button, div[role="button"]');
+                    for (var i = 0; i < cookieButtons.length; i++) {
+                        var text = (cookieButtons[i].innerText || cookieButtons[i].textContent || '').toLowerCase();
+                        if (text.includes('accept') || text.includes('agree') || text.includes('roziman') || text.includes('принять') || text.includes('qabul')) {
+                            cookieButtons[i].click();
                             break;
                         }
                     }
                 } catch(e) {}
 
-                // 2. Active monitor of input box for recognized phrases
-                function checkInputs() {
-                    var inputs = document.querySelectorAll('textarea, input[name="q"], input[type="text"], div[role="combobox"] textarea');
-                    inputs.forEach(function(input) {
-                        if (input.value && input.value.trim().length > 0) {
-                            var val = input.value.trim();
-                            if (window.AndroidVoiceBridge) {
-                                window.AndroidVoiceBridge.onSpeechResult(val, true);
-                            }
+                // 2. Text Extractor from Gemini's rich input and Search inputs
+                function extractGeminiInputText() {
+                    // Gemini uses rich-textarea with contenteditable or p tags inside .ql-editor
+                    var richInputs = document.querySelectorAll(
+                        'rich-textarea .ql-editor, ' +
+                        'div[contenteditable="true"], ' +
+                        'div[role="textbox"], ' +
+                        'rich-textarea p, ' +
+                        'textarea[aria-label*="Gemini" i], ' +
+                        'textarea[aria-label*="prompt" i], ' +
+                        'textarea, input[name="q"]'
+                    );
+
+                    for (var i = 0; i < richInputs.length; i++) {
+                        var el = richInputs[i];
+                        var text = el.innerText || el.textContent || el.value || '';
+                        text = text.trim();
+                        // Ignore placeholder instructions like "Diktovka uchun..." or "Ask Gemini"
+                        if (text.length > 0 && 
+                            !text.startsWith('Diktovka uchun') && 
+                            !text.startsWith('Ask Gemini') && 
+                            !text.startsWith('Savol bering') &&
+                            !text.startsWith('Type a prompt')) {
+                            return text;
                         }
-                    });
+                    }
+                    return '';
                 }
 
-                // Global mutation observer
-                var observer = new MutationObserver(function(mutations) {
-                    checkInputs();
-                });
-                
-                observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+                // 3. MutationObserver on Gemini's document body
+                if (!window.__geminiObserverInitialized) {
+                    window.__geminiObserverInitialized = true;
+                    var observer = new MutationObserver(function(mutations) {
+                        var currentText = extractGeminiInputText();
+                        if (currentText && window.AndroidVoiceBridge) {
+                            window.AndroidVoiceBridge.onSpeechResult(currentText, false);
+                        }
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+                }
 
                 if (window.AndroidVoiceBridge) {
                     window.AndroidVoiceBridge.onBridgeReady();
@@ -248,95 +281,81 @@ class GoogleSearchAiVoiceEngine(
     }
 
     /**
-     * Captcha & Unusual Traffic Detection
+     * Triggers the Microphone button on https://gemini.google.com/app
      */
-    fun checkForCaptcha() {
-        val captchaDetectionJs = """
-            (function() {
-                try {
-                    var html = document.documentElement.innerHTML.toLowerCase();
-                    var url = window.location.href.toLowerCase();
-                    
-                    var isCaptcha = url.includes('/sorry/') || 
-                                    url.includes('captcha') || 
-                                    html.includes('recaptcha') || 
-                                    html.includes('unusual traffic') || 
-                                    html.includes('our systems have detected unusual traffic') ||
-                                    html.includes('robot emasligingizni tasdiqlang') ||
-                                    html.includes('подтвердите, что вы не робот') ||
-                                    document.querySelector('#captcha-form, iframe[src*="recaptcha"], #recaptcha') !== null;
-                                    
-                    return isCaptcha ? "CAPTCHA_DETECTED" : "NO_CAPTCHA";
-                } catch(e) {
-                    return "ERROR";
-                }
-            })();
-        """.trimIndent()
-
-        mainHandler.post {
-            webView?.evaluateJavascript(captchaDetectionJs) { res ->
-                if (res?.contains("CAPTCHA_DETECTED") == true) {
-                    _isCaptchaShowing.value = true
-                    _voiceState.value = GoogleVoiceState.CaptchaDetected
-                    _engineStatus.value = "Security Check / Captcha detected. Please solve on screen."
-                } else {
-                    _isCaptchaShowing.value = false
-                }
-            }
-        }
-    }
-
-    fun startVoiceRecognition() {
-        isListeningActive = true
-        _voiceState.value = GoogleVoiceState.Listening()
-        _engineStatus.value = "Listening via Google AI Mode (udm=50)..."
-        checkForCaptcha()
-        triggerVoiceMicInPage()
-        startWatchdogPolling()
-    }
-
     private fun triggerVoiceMicInPage() {
         if (!isPageReady) return
 
         val triggerMicJs = """
             (function() {
                 try {
-                    // Check if already active listening
-                    var activeListeningIndicator = document.querySelector('div[aria-label*="listening" i], [aria-label*="tinglamoqda" i], div.spch, #spch');
-                    if (activeListeningIndicator && activeListeningIndicator.offsetWidth > 0) {
+                    // Check if already active listening in Gemini (pulsing mic or stop button)
+                    var activeListeningBtn = document.querySelector(
+                        'button[aria-label*="Stop" i], ' +
+                        'button[aria-label*="To\'xtatish" i], ' +
+                        'button[aria-label*="Остановить" i], ' +
+                        'div.pulsing-mic, ' +
+                        '.is-listening'
+                    );
+                    if (activeListeningBtn && activeListeningBtn.offsetWidth > 0) {
                         return "ALREADY_LISTENING";
                     }
 
-                    // 1. Locate Google Search AI mic button by SVG mic icon path
-                    var svgs = document.querySelectorAll('svg path');
-                    for (var i = 0; i < svgs.length; i++) {
-                        var d = svgs[i].getAttribute('d') || '';
-                        if (d.indexOf('M12 14c') !== -1 || d.indexOf('M12 2a3') !== -1 || d.startsWith('M12')) {
-                            var btn = svgs[i].closest('button, div[role="button"], a');
-                            if (btn) {
-                                btn.click();
-                                return "CLICKED_MIC_SVG";
+                    // 1. Locate Gemini's Microphone button by aria-label (English, Uzbek, Russian)
+                    var micSelectors = [
+                        'button[aria-label*="microphone" i]',
+                        'button[aria-label*="Mikrofon" i]',
+                        'button[aria-label*="микрофон" i]',
+                        'button[aria-label*="Use microphone" i]',
+                        'button[aria-label*="Dictate" i]',
+                        'button[aria-label*="Diktovka" i]',
+                        'button[data-test-id="mic-button"]',
+                        'button.mic-button',
+                        'button[jsname="j1wRcf"]'
+                    ];
+
+                    for (var s = 0; s < micSelectors.length; s++) {
+                        var btn = document.querySelector(micSelectors[s]);
+                        if (btn && btn.offsetWidth > 0) {
+                            btn.click();
+                            return "CLICKED_GEMINI_MIC_ARIA: " + micSelectors[s];
+                        }
+                    }
+
+                    // 2. Search by mat-icon fonticon="mic" inside button
+                    var matIcons = document.querySelectorAll('mat-icon');
+                    for (var m = 0; m < matIcons.length; m++) {
+                        var iconName = (matIcons[m].getAttribute('fonticon') || matIcons[m].innerText || matIcons[m].textContent || '').toLowerCase();
+                        if (iconName.includes('mic')) {
+                            var parentBtn = matIcons[m].closest('button, div[role="button"]');
+                            if (parentBtn) {
+                                parentBtn.click();
+                                return "CLICKED_MAT_ICON_MIC";
                             }
                         }
                     }
 
-                    // 2. Search by aria-label for Voice search button
-                    var voiceBtns = document.querySelectorAll('[aria-label*="voice" i], [aria-label*="Voice" i], [aria-label*="ovoz" i], [aria-label*="Ovoz" i], [aria-label*="Search by voice" i]');
-                    for (var j = 0; j < voiceBtns.length; j++) {
-                        if (voiceBtns[j].tagName === 'BUTTON' || voiceBtns[j].getAttribute('role') === 'button' || voiceBtns[j].tagName === 'A') {
-                            voiceBtns[j].click();
-                            return "CLICKED_MIC_ARIA";
+                    // 3. Search by SVG path containing microphone geometry
+                    var svgs = document.querySelectorAll('svg path');
+                    for (var i = 0; i < svgs.length; i++) {
+                        var d = svgs[i].getAttribute('d') || '';
+                        if (d.indexOf('M12 14c') !== -1 || d.indexOf('M12 2a3') !== -1 || (d.startsWith('M12') && d.length > 20)) {
+                            var svgBtn = svgs[i].closest('button, div[role="button"]');
+                            if (svgBtn && svgBtn.offsetWidth > 0) {
+                                svgBtn.click();
+                                return "CLICKED_SVG_MIC";
+                            }
                         }
                     }
 
-                    // 3. Fallback input focus
-                    var primaryInput = document.querySelector('textarea, input[name="q"]');
-                    if (primaryInput) {
-                        primaryInput.focus();
+                    // 4. Focus Gemini text input
+                    var richInput = document.querySelector('rich-textarea .ql-editor, div[contenteditable="true"], textarea');
+                    if (richInput) {
+                        richInput.focus();
                         return "FOCUSED_INPUT";
                     }
 
-                    return "NO_MIC_BUTTON";
+                    return "NO_MIC_FOUND";
                 } catch(e) {
                     return "ERROR: " + e.toString();
                 }
@@ -345,7 +364,7 @@ class GoogleSearchAiVoiceEngine(
 
         mainHandler.post {
             webView?.evaluateJavascript(triggerMicJs) { res ->
-                Log.d(tag, "Trigger Mic Result: $res")
+                Log.d(tag, "Trigger Gemini Mic Result: $res")
             }
         }
     }
@@ -356,35 +375,62 @@ class GoogleSearchAiVoiceEngine(
         val watchdogJs = """
             (function() {
                 try {
+                    // Extract live text from Gemini
                     var resultText = "";
-                    var inputs = document.querySelectorAll('textarea, input[name="q"], input[type="text"]');
-                    for (var i = 0; i < inputs.length; i++) {
-                        if (inputs[i].value && inputs[i].value.trim().length > 0) {
-                            resultText = inputs[i].value.trim();
-                            // Clear input after capturing so subsequent speech doesn't duplicate
-                            inputs[i].value = '';
+                    var richInputs = document.querySelectorAll(
+                        'rich-textarea .ql-editor, ' +
+                        'div[contenteditable="true"], ' +
+                        'div[role="textbox"], ' +
+                        'rich-textarea p, ' +
+                        'textarea[aria-label*="Gemini" i], ' +
+                        'textarea, input[name="q"]'
+                    );
+
+                    for (var i = 0; i < richInputs.length; i++) {
+                        var el = richInputs[i];
+                        var text = el.innerText || el.textContent || el.value || '';
+                        text = text.trim();
+                        if (text.length > 0 && 
+                            !text.startsWith('Diktovka uchun') && 
+                            !text.startsWith('Ask Gemini') && 
+                            !text.startsWith('Savol bering') &&
+                            !text.startsWith('Type a prompt')) {
+                            resultText = text;
                             break;
                         }
                     }
 
-                    // Check if voice search overlay is still active or closed (timeout/silence)
-                    var isOverlayActive = false;
-                    var voiceOverlay = document.querySelector('div.spch, #spch, div[aria-modal="true"], div[aria-label*="listening" i]');
-                    if (voiceOverlay && voiceOverlay.offsetWidth > 0 && voiceOverlay.offsetHeight > 0) {
-                        isOverlayActive = true;
+                    // Check if mic is actively recording in Gemini
+                    var isListening = false;
+                    var activeMic = document.querySelector(
+                        'button[aria-label*="Stop" i], ' +
+                        'button[aria-label*="To\'xtatish" i], ' +
+                        'button[aria-label*="Остановить" i], ' +
+                        'div.pulsing-mic, ' +
+                        '.is-listening, ' +
+                        'div[aria-modal="true"]'
+                    );
+                    if (activeMic && activeMic.offsetWidth > 0 && activeMic.offsetHeight > 0) {
+                        isListening = true;
                     }
 
-                    // Also check for captcha during run
+                    // Check if Captcha / Sign-in is needed
                     var html = document.documentElement.innerHTML.toLowerCase();
-                    var isCaptcha = html.includes('recaptcha') || html.includes('unusual traffic');
+                    var url = window.location.href.toLowerCase();
+                    var isCaptcha = url.includes('/sorry/') || 
+                                    url.includes('captcha') || 
+                                    html.includes('recaptcha') || 
+                                    html.includes('unusual traffic');
+                    var isLogin = url.includes('accounts.google.com') || html.includes('sign in to gemini');
 
                     return JSON.stringify({
                         text: resultText,
-                        overlayActive: isOverlayActive,
-                        isCaptcha: isCaptcha
+                        isListening: isListening,
+                        isCaptcha: isCaptcha,
+                        isLogin: isLogin
                     });
                 } catch(e) {
-                    return JSON.stringify({ text: "", overlayActive: false, isCaptcha: false, error: e.toString() });
+                    return JSON.stringify({ text: "", isListening: false, isCaptcha: false, isLogin: false, error: e.toString() });
                 }
             })();
         """.trimIndent()
@@ -414,14 +460,18 @@ class GoogleSearchAiVoiceEngine(
 
             val jsonObj = org.json.JSONObject(unquoted)
             val text = jsonObj.optString("text", "").trim()
-            val overlayActive = jsonObj.optBoolean("overlayActive", false)
+            val isListening = jsonObj.optBoolean("isListening", false)
             val isCaptcha = jsonObj.optBoolean("isCaptcha", false)
+            val isLogin = jsonObj.optBoolean("isLogin", false)
 
             if (isCaptcha) {
                 _isCaptchaShowing.value = true
                 _voiceState.value = GoogleVoiceState.CaptchaDetected
                 _engineStatus.value = "Security Check detected. Please solve on screen."
                 return
+            } else if (isLogin) {
+                _voiceState.value = GoogleVoiceState.LoginRequired
+                _engineStatus.value = "Gemini sign-in recommended. Tap Security/Login dialog."
             } else {
                 if (_isCaptchaShowing.value) {
                     _isCaptchaShowing.value = false
@@ -430,14 +480,14 @@ class GoogleSearchAiVoiceEngine(
 
             if (text.isNotBlank() && text != lastExtractedText) {
                 lastExtractedText = text
-                _engineStatus.value = "Transcribed phrase from udm=50"
+                _engineStatus.value = "Transcribing live from Gemini..."
                 onChunkFinalized(text)
             }
 
-            // Auto-recovery / Keep-Alive: If user is actively recording but Google's web mic auto-closed due to silence
-            if (isListeningActive && !overlayActive) {
+            // Auto-recovery / Keep-Alive: If user is actively recording but Gemini's mic stopped due to pause
+            if (isListeningActive && !isListening) {
                 _voiceState.value = GoogleVoiceState.Reconnecting
-                _engineStatus.value = "Google AI mic ready (auto-listening)..."
+                _engineStatus.value = "Gemini Mic ready (continuous listening)..."
                 mainHandler.postDelayed({
                     if (isListeningActive) {
                         triggerVoiceMicInPage()
@@ -450,31 +500,69 @@ class GoogleSearchAiVoiceEngine(
         }
     }
 
-    fun dismissCaptchaSolved() {
-        _isCaptchaShowing.value = false
-        _voiceState.value = GoogleVoiceState.Ready
-        _engineStatus.value = "Captcha solved! Google AI Engine Ready"
-        injectStealthScript()
-        injectGoogleVoiceBridge()
+    fun checkForCaptcha() {
+        val captchaDetectionJs = """
+            (function() {
+                try {
+                    var html = document.documentElement.innerHTML.toLowerCase();
+                    var url = window.location.href.toLowerCase();
+                    
+                    var isCaptcha = url.includes('/sorry/') || 
+                                    url.includes('captcha') || 
+                                    html.includes('recaptcha') || 
+                                    html.includes('unusual traffic') || 
+                                    html.includes('robot emasligingizni tasdiqlang') ||
+                                    html.includes('подтвердите, что вы не робот');
+                                    
+                    var isLogin = url.includes('accounts.google.com');
+
+                    if (isCaptcha) return "CAPTCHA_DETECTED";
+                    if (isLogin) return "LOGIN_REQUIRED";
+                    return "OK";
+                } catch(e) {
+                    return "ERROR";
+                }
+            })();
+        """.trimIndent()
+
+        mainHandler.post {
+            webView?.evaluateJavascript(captchaDetectionJs) { res ->
+                if (res?.contains("CAPTCHA_DETECTED") == true) {
+                    _isCaptchaShowing.value = true
+                    _voiceState.value = GoogleVoiceState.CaptchaDetected
+                    _engineStatus.value = "Security Check detected. Please solve on screen."
+                } else if (res?.contains("LOGIN_REQUIRED") == true) {
+                    _voiceState.value = GoogleVoiceState.LoginRequired
+                    _engineStatus.value = "Google Login needed. Tap Security/Login dialog."
+                } else {
+                    _isCaptchaShowing.value = false
+                }
+            }
+        }
     }
 
-    fun reloadEngine() {
-        _isCaptchaShowing.value = false
-        _engineStatus.value = "Reloading Google AI Mode..."
-        mainHandler.post {
-            webView?.reload()
-        }
+    fun startVoiceRecognition() {
+        isListeningActive = true
+        _voiceState.value = GoogleVoiceState.Listening()
+        _engineStatus.value = "Listening via Gemini (gemini.google.com/app)..."
+        checkForCaptcha()
+        triggerVoiceMicInPage()
+        startWatchdogPolling()
     }
 
     fun stopVoiceRecognition() {
         isListeningActive = false
         _voiceState.value = GoogleVoiceState.Ready
-        _engineStatus.value = "Google AI Mode Engine Ready"
+        _engineStatus.value = "Gemini Voice Engine Ready"
 
         val stopJs = """
             (function() {
                 try {
-                    var stopBtns = document.querySelectorAll('button[aria-label*="stop" i], div[role="button"][aria-label*="stop" i], button[aria-label*="close" i], div.spch-c');
+                    var stopBtns = document.querySelectorAll(
+                        'button[aria-label*="Stop" i], ' +
+                        'button[aria-label*="To\'xtatish" i], ' +
+                        'button[aria-label*="Остановить" i]'
+                    );
                     if (stopBtns.length > 0) stopBtns[0].click();
                 } catch(e) {}
             })();
@@ -485,11 +573,34 @@ class GoogleSearchAiVoiceEngine(
         }
     }
 
+    fun dismissCaptchaSolved() {
+        _isCaptchaShowing.value = false
+        _voiceState.value = GoogleVoiceState.Ready
+        _engineStatus.value = "Gemini Engine Ready"
+        injectStealthScript()
+        injectGeminiVoiceBridge()
+    }
+
+    fun reloadEngine() {
+        _isCaptchaShowing.value = false
+        _engineStatus.value = "Reloading Gemini..."
+        mainHandler.post {
+            webView?.loadUrl(GEMINI_APP_URL)
+        }
+    }
+
+    fun openGoogleSearchFallback() {
+        _engineStatus.value = "Switching to Google Search AI Mode..."
+        mainHandler.post {
+            webView?.loadUrl(GOOGLE_SEARCH_AI_URL)
+        }
+    }
+
     private inner class VoiceBridgeInterface {
         @JavascriptInterface
         fun onBridgeReady() {
             coroutineScope.launch(Dispatchers.Main) {
-                _engineStatus.value = "Google AI Mode (udm=50) Bridge Connected"
+                _engineStatus.value = "Gemini Voice Bridge Connected"
             }
         }
 
