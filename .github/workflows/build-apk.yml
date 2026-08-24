@@ -24,7 +24,6 @@ jobs:
 
       - name: Setup Secrets and Keystore
         run: |
-          # Ensure .env exists for the secrets-gradle-plugin with the required keys
           if [ -f .env.example ]; then
             cp .env.example .env
           else
@@ -53,14 +52,13 @@ jobs:
 
       - name: Build Debug APK
         run: |
-          # Optimize Gradle for GitHub Actions (2 cores, 7GB RAM limit)
-          echo "org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> gradle.properties
-          echo "kotlin.daemon.jvmargs=-Xmx2g" >> gradle.properties
-          echo "org.gradle.parallel=false" >> gradle.properties
-          echo "org.gradle.workers.max=2" >> gradle.properties
+          # Optimize Gradle for GitHub Actions (1 worker, 5GB RAM)
+          # We use sed to replace the existing values in gradle.properties to avoid duplicates
+          sed -i 's/org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8/g' gradle.properties
+          sed -i 's/org.gradle.parallel=true/org.gradle.parallel=false/g' gradle.properties
+          sed -i 's/org.gradle.workers.max=4/org.gradle.workers.max=1/g' gradle.properties
           
-          gradle assembleDebug --no-daemon --stacktrace --no-configuration-cache
-
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
