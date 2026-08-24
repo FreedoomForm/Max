@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,7 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
@@ -31,16 +29,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -53,8 +48,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,10 +69,7 @@ fun HistoryScreen(
     onDeleteTranscript: (TranscriptEntity) -> Unit,
     onCopyText: (String) -> Unit,
     onShareText: (String) -> Unit,
-    onAiFormatTranscript: (TranscriptEntity) -> Unit = {},
-    onAiSummarizeTranscript: (TranscriptEntity) -> Unit = {},
     onRenameTitle: (TranscriptEntity, String) -> Unit = { _, _ -> },
-    isAiProcessing: Boolean = false,
     formatTime: (Long) -> String,
     modifier: Modifier = Modifier
 ) {
@@ -95,9 +85,7 @@ fun HistoryScreen(
             val query = searchQuery.trim().lowercase(Locale.getDefault())
             savedTranscripts.filter {
                 it.title.lowercase(Locale.getDefault()).contains(query) ||
-                    it.rawContent.lowercase(Locale.getDefault()).contains(query) ||
-                    (it.formattedContent?.lowercase(Locale.getDefault())?.contains(query) == true) ||
-                    (it.summary?.lowercase(Locale.getDefault())?.contains(query) == true)
+                    it.rawContent.lowercase(Locale.getDefault()).contains(query)
             }
         }
     }
@@ -233,15 +221,12 @@ fun HistoryScreen(
                         transcript = transcript,
                         onLoad = { onLoadTranscript(transcript) },
                         onDelete = { itemToDelete = transcript },
-                        onCopy = { onCopyText(transcript.formattedContent ?: transcript.rawContent) },
-                        onShare = { onShareText(transcript.formattedContent ?: transcript.rawContent) },
-                        onAiFormat = { onAiFormatTranscript(transcript) },
-                        onAiSummarize = { onAiSummarizeTranscript(transcript) },
+                        onCopy = { onCopyText(transcript.rawContent) },
+                        onShare = { onShareText(transcript.rawContent) },
                         onRenameClick = {
                             itemToRename = transcript
                             renameInputText = transcript.title
                         },
-                        isAiProcessing = isAiProcessing,
                         formatTime = formatTime
                     )
                 }
@@ -319,10 +304,7 @@ private fun TranscriptCard(
     onDelete: () -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit,
-    onAiFormat: () -> Unit,
-    onAiSummarize: () -> Unit,
     onRenameClick: () -> Unit,
-    isAiProcessing: Boolean,
     formatTime: (Long) -> String,
     modifier: Modifier = Modifier
 ) {
@@ -348,7 +330,6 @@ private fun TranscriptCard(
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
-            // Header Row: Title & Action buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -440,13 +421,11 @@ private fun TranscriptCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Badges row: duration, words, language, AI status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Duration badge
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -470,7 +449,6 @@ private fun TranscriptCard(
                     }
                 }
 
-                // Word count badge
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -482,126 +460,18 @@ private fun TranscriptCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-
-                // AI Formatted badge if available
-                if (transcript.formattedContent != null) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = GoogleBlue.copy(alpha = 0.12f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = GoogleBlue,
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "AI Formatted",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = GoogleBlue,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Body preview / full text
-            val displayContent = transcript.formattedContent ?: transcript.rawContent
             Text(
-                text = displayContent,
+                text = transcript.rawContent,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                 maxLines = if (expanded) Int.MAX_VALUE else 3,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 20.sp
             )
-
-            // AI Action Buttons when expanded
-            if (expanded) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = onAiFormat,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            tint = GoogleBlue,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (transcript.formattedContent != null) "Re-format AI" else "Format with AI",
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onAiSummarize,
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Summarize,
-                            contentDescription = null,
-                            tint = GoogleGreen,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (transcript.summary != null) "Re-summarize" else "AI Summary",
-                            fontSize = 12.sp
-                        )
-                    }
-                }
-            }
-
-            // AI Summary section if available and expanded
-            if (expanded && !transcript.summary.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = GoogleGreen.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, GoogleGreen.copy(alpha = 0.25f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = GoogleGreen,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "AI Summary",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = GoogleGreen,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = transcript.summary,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 18.sp
-                        )
-                    }
-                }
-            }
         }
     }
 }

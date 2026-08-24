@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,29 +14,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +47,6 @@ import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.GoogleGreen
 import com.example.ui.theme.GoogleRed
 import com.example.ui.theme.GoogleYellow
-import com.example.ui.theme.PrimaryBlue
 
 @Composable
 fun LiveTranscribeScreen(
@@ -64,14 +56,11 @@ fun LiveTranscribeScreen(
     speechState: SpeechState,
     rmsVolume: Float,
     elapsedSeconds: Long,
-    engineStatus: String,
     onToggleRecording: () -> Unit,
     onClearTranscript: () -> Unit,
     onCopyTranscript: () -> Unit,
     onShareTranscript: () -> Unit,
     onSaveTranscript: () -> Unit,
-    onAiFormatTranscript: () -> Unit = {},
-    isAiProcessing: Boolean = false,
     formatTime: (Long) -> String,
     modifier: Modifier = Modifier
 ) {
@@ -85,7 +74,7 @@ fun LiveTranscribeScreen(
             .testTag("live_transcribe_screen"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Top status card: Timer, Word count, Engine status
+        // Top status card: Timer, Word count
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -93,7 +82,6 @@ fun LiveTranscribeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Live Timer Badge
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isRecording) GoogleRed.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
@@ -130,7 +118,6 @@ fun LiveTranscribeScreen(
                 }
             }
 
-            // Word & Char counter
             Text(
                 text = "$wordCount words • $charCount chars",
                 style = MaterialTheme.typography.labelSmall,
@@ -141,7 +128,7 @@ fun LiveTranscribeScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Main Text Box Area (Editable & Live Streaming)
+        // Main Text Box Area
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -161,14 +148,13 @@ fun LiveTranscribeScreen(
                     .fillMaxSize()
                     .padding(12.dp)
             ) {
-                // Toolbar on top of text box: Clear, Copy, Share, Save
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isRecording) "Listening..." else "Speech to Text",
+                        text = if (isRecording) "Listening..." else "Voice to Text",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isRecording) GoogleBlue else MaterialTheme.colorScheme.onSurfaceVariant
@@ -179,26 +165,6 @@ fun LiveTranscribeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (transcriptText.isNotBlank()) {
-                            if (isAiProcessing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = GoogleBlue
-                                )
-                            } else {
-                                IconButton(
-                                    onClick = onAiFormatTranscript,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = "AI Format & Punctuate",
-                                        tint = GoogleBlue,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
                             IconButton(
                                 onClick = onCopyTranscript,
                                 modifier = Modifier.size(36.dp)
@@ -252,7 +218,6 @@ fun LiveTranscribeScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Editable text input field
                 OutlinedTextField(
                     value = transcriptText,
                     onValueChange = onTranscriptTextChange,
@@ -261,7 +226,7 @@ fun LiveTranscribeScreen(
                         .testTag("transcript_input_field"),
                     placeholder = {
                         Text(
-                            text = "Tap the Gemini microphone below and start speaking.\n\nYour speech is transcribed in real-time via Google Gemini (gemini.google.com/app).",
+                            text = "Tap the microphone below and start speaking.\n\nYour spoken words are converted directly to text in real time.",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                             lineHeight = 24.sp
@@ -284,7 +249,7 @@ fun LiveTranscribeScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Waveform Visualizer & Engine Status
+        // Waveform Visualizer
         AnimatedVisibility(
             visible = isRecording,
             enter = fadeIn(),
@@ -302,36 +267,9 @@ fun LiveTranscribeScreen(
             }
         }
 
-        // Engine Status Tag
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = if (isRecording) GoogleBlue.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-            border = BorderStroke(1.dp, if (isRecording) GoogleBlue.copy(alpha = 0.3f) else Color.Transparent),
-            modifier = Modifier.padding(vertical = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = if (isRecording) GoogleGreen else GoogleBlue,
-                    modifier = Modifier.size(7.dp)
-                ) {}
-                Text(
-                    text = if (isRecording) "gemini.google.com/app • Live Voice Active" else "Engine: gemini.google.com/app",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isRecording) GoogleBlue else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 11.sp
-                )
-            }
-        }
-
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Big Glowing Google Mic Button
+        // Big Mic Button
         Box(
             modifier = Modifier
                 .padding(vertical = 6.dp)
@@ -346,7 +284,7 @@ fun LiveTranscribeScreen(
         }
 
         Text(
-            text = if (isRecording) "Listening... Tap to stop" else "Tap Google Mic to speak",
+            text = if (isRecording) "Listening... Tap to stop" else "Tap Microphone to speak",
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = if (isRecording) GoogleRed else MaterialTheme.colorScheme.onSurfaceVariant

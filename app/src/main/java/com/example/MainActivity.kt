@@ -60,7 +60,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.AppTab
 import com.example.ui.TranscribeViewModel
-import com.example.ui.components.CaptchaResolutionDialog
 import com.example.ui.components.TopHeader
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.LiveTranscribeScreen
@@ -95,11 +94,8 @@ fun MainAppScreen(
     val speechState by viewModel.speechState.collectAsState()
     val rmsVolume by viewModel.rmsVolume.collectAsState()
     val elapsedSeconds by viewModel.elapsedSeconds.collectAsState()
-    val engineStatus by viewModel.googleEngineStatus.collectAsState()
-    val isCaptchaShowing by viewModel.googleVoiceEngine.isCaptchaShowing.collectAsState()
     val savedTranscripts by viewModel.savedTranscripts.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
-    val isAiProcessing by viewModel.isAiProcessing.collectAsState()
 
     var hasAudioPermission by remember {
         mutableStateOf(
@@ -127,22 +123,6 @@ fun MainAppScreen(
             )
             viewModel.clearUiMessage()
         }
-    }
-
-    // Interactive Security/Captcha dialog when Google prompts a verification
-    if (isCaptchaShowing) {
-        CaptchaResolutionDialog(
-            webView = viewModel.googleVoiceEngine.webView,
-            onSolved = {
-                viewModel.googleVoiceEngine.dismissCaptchaSolved()
-            },
-            onReload = {
-                viewModel.googleVoiceEngine.reloadEngine()
-            },
-            onDismiss = {
-                viewModel.googleVoiceEngine.dismissCaptchaSolved()
-            }
-        )
     }
 
     Scaffold(
@@ -182,7 +162,6 @@ fun MainAppScreen(
                             speechState = speechState,
                             rmsVolume = rmsVolume,
                             elapsedSeconds = elapsedSeconds,
-                            engineStatus = engineStatus,
                             onToggleRecording = {
                                 if (hasAudioPermission) {
                                     viewModel.toggleRecording()
@@ -194,8 +173,6 @@ fun MainAppScreen(
                             onCopyTranscript = { viewModel.copyToClipboard() },
                             onShareTranscript = { viewModel.shareTranscript() },
                             onSaveTranscript = { viewModel.saveTranscriptToHistory() },
-                            onAiFormatTranscript = { viewModel.formatCurrentTranscript() },
-                            isAiProcessing = isAiProcessing,
                             formatTime = { viewModel.formatTime(it) }
                         )
                     }
@@ -206,10 +183,7 @@ fun MainAppScreen(
                             onDeleteTranscript = { viewModel.deleteSavedTranscript(it) },
                             onCopyText = { viewModel.copyToClipboard(it) },
                             onShareText = { viewModel.shareTranscript(it) },
-                            onAiFormatTranscript = { viewModel.formatHistoryTranscript(it) },
-                            onAiSummarizeTranscript = { viewModel.summarizeHistoryTranscript(it) },
                             onRenameTitle = { entity, newTitle -> viewModel.updateTranscriptTitle(entity, newTitle) },
-                            isAiProcessing = isAiProcessing,
                             formatTime = { viewModel.formatTime(it) }
                         )
                     }
@@ -245,7 +219,7 @@ fun AppBottomNavigationBar(
         ) {
             NavBarItem(
                 icon = Icons.Default.Mic,
-                label = "Speech to Text",
+                label = "Voice to Text",
                 isSelected = currentTab == AppTab.TRANSCRIBE,
                 onClick = { onSelectTab(AppTab.TRANSCRIBE) },
                 testTag = "nav_transcribe"
