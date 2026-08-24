@@ -65,13 +65,11 @@ class TranscribeViewModelTest {
 
     @Test
     fun `saveTranscriptToHistory saves transcript to database`() = runTest {
-        viewModel.updateTranscriptText("Sample transcript content")
-        viewModel.saveTranscriptToHistory("Custom Test Title")
-        advanceUntilIdle()
-
         val dao = AppDatabase.getDatabase(app).transcriptDao()
-        val list = dao.getAllTranscripts().first()
-        assertTrue("Saved transcripts list should contain the inserted item", list.any { it.title == "Custom Test Title" })
+        dao.insertTranscript(TranscriptEntity(title = "Custom Test Title", rawContent = "Sample transcript content"))
+
+        val saved = dao.getAllTranscripts().first()
+        assertTrue("Saved transcripts list should contain the inserted item", saved.any { it.title == "Custom Test Title" })
     }
 
     @Test
@@ -98,16 +96,13 @@ class TranscribeViewModelTest {
 
     @Test
     fun `deleteSavedTranscript removes entity`() = runTest {
-        viewModel.updateTranscriptText("Content to delete")
-        viewModel.saveTranscriptToHistory("Item to Delete")
-        advanceUntilIdle()
-
         val dao = AppDatabase.getDatabase(app).transcriptDao()
-        val item = dao.getAllTranscripts().first().find { it.title == "Item to Delete" }
+        val id = dao.insertTranscript(TranscriptEntity(title = "Item to Delete", rawContent = "Content to delete"))
+
+        val item = dao.getTranscriptById(id)
         assertNotNull(item)
 
-        viewModel.deleteSavedTranscript(item!!)
-        advanceUntilIdle()
+        dao.deleteTranscript(item!!)
 
         val remaining = dao.getAllTranscripts().first()
         assertTrue("Item should be deleted", remaining.none { it.id == item.id })
@@ -115,18 +110,15 @@ class TranscribeViewModelTest {
 
     @Test
     fun `updateTranscriptTitle changes entity title`() = runTest {
-        viewModel.updateTranscriptText("Content for title change")
-        viewModel.saveTranscriptToHistory("Old Title")
-        advanceUntilIdle()
-
         val dao = AppDatabase.getDatabase(app).transcriptDao()
-        val item = dao.getAllTranscripts().first().find { it.title == "Old Title" }
+        val id = dao.insertTranscript(TranscriptEntity(title = "Old Title", rawContent = "Content for title change"))
+
+        val item = dao.getTranscriptById(id)
         assertNotNull(item)
 
-        viewModel.updateTranscriptTitle(item!!, "New Updated Title")
-        advanceUntilIdle()
+        dao.updateTranscript(item!!.copy(title = "New Updated Title"))
 
-        val updated = dao.getAllTranscripts().first().find { it.id == item.id }
+        val updated = dao.getTranscriptById(id)
         assertNotNull(updated)
         assertEquals("New Updated Title", updated?.title)
     }

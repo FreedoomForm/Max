@@ -197,6 +197,7 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectLanguage(language: LanguageOption) {
         _selectedLanguage.value = language
+        googleVoiceEngine.setLanguage(language.code)
         if (_isRecording.value) {
             speechManager.startListening(language.code)
         }
@@ -222,13 +223,13 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         _liveInterimText.value = ""
         startTimer()
 
-        // 1. Start Google Search AI Mode (udm=50) engine with auto-reconnect watchdog
-        googleVoiceEngine.startVoiceRecognition()
+        // 1. Start Web Speech API (webkitSpeechRecognition) engine
+        googleVoiceEngine.startVoiceRecognition(_selectedLanguage.value.code)
 
         // 2. Start local live streaming engine for instant zero-latency word-by-word streaming
         speechManager.startListening(_selectedLanguage.value.code)
 
-        showMessage("Google Voice is active. Speak freely!")
+        showMessage("Voice recognition active. Speak freely!")
     }
 
     private fun stopRecording() {
