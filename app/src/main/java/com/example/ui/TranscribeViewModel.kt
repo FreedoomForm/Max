@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai.GeminiAiService
 import com.example.data.AppDatabase
 import com.example.data.TranscriptEntity
 import com.example.scraper.GoogleSearchAiVoiceEngine
@@ -46,6 +47,7 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
     private val database = AppDatabase.getDatabase(application)
     private val transcriptDao = database.transcriptDao()
     private val speechManager = ContinuousSpeechManager(application)
+    private val geminiAiService = GeminiAiService()
 
     val availableLanguages = listOf(
         LanguageOption("Auto Detect", "default"),
@@ -85,6 +87,9 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
 
     private val _uiMessage = MutableStateFlow<UiMessage?>(null)
     val uiMessage: StateFlow<UiMessage?> = _uiMessage.asStateFlow()
+
+    private val _isAiProcessing = MutableStateFlow(false)
+    val isAiProcessing: StateFlow<Boolean> = _isAiProcessing.asStateFlow()
 
     // Google Search AI Mode (udm=50) Voice Engine with auto-reconnect
     val googleVoiceEngine = GoogleSearchAiVoiceEngine(
@@ -136,12 +141,41 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         val clean = chunk.trim()
         if (clean.isBlank()) return
 
-        if (confirmedTextBuffer.isEmpty()) {
+        if (confirmedTextBuffer.isBlank()) {
             confirmedTextBuffer = clean
         } else {
-            // Avoid duplicate appends if both engines emit the same phrase
-            if (!confirmedTextBuffer.endsWith(clean, ignoreCase = true)) {
-                confirmedTextBuffer = "$confirmedTextBuffer $clean"
+            val buf = confirmedTextBuffer.trim()
+            if (buf.equals(clean, ignoreCase = true) || buf.endsWith(clean, ignoreCase = true)) {
+                _liveInterimText.value = ""
+                _transcriptText.value = confirmedTextBuffer
+                return
+            }
+            if (clean.startsWith(buf, ignoreCase = true)) {
+                confirmedTextBuffer = clean
+                _liveInterimText.value = ""
+                _transcriptText.value = confirmedTextBuffer
+                return
+            }
+
+            // Check overlap between end of buf and start of clean
+            var bestOverlap = 0
+            val maxOverlapLength = minOf(buf.length, clean.length)
+            for (len in maxOverlapLength downTo 1) {
+                val bufSuffix = buf.takeLast(len)
+                val cleanPrefix = clean.take(len)
+                if (bufSuffix.equals(cleanPrefix, ignoreCase = true)) {
+                    bestOverlap = len
+                    break
+                }
+            }
+
+            if (bestOverlap > 0) {
+                val remainingNew = clean.substring(bestOverlap).trim()
+                if (remainingNew.isNotEmpty()) {
+                    confirmedTextBuffer = "$buf $remainingNew"
+                }
+            } else {
+                confirmedTextBuffer = "$buf $clean"
             }
         }
         _liveInterimText.value = ""
@@ -272,8 +306,78 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun copyToClipboard() {
-        val text = _transcriptText.value.trim()
+    fun formatCurrentTranscript() {
+        val currentText = _transcriptText.value.trim()
+        if (currentText.isBlank()) {
+            showMessage("No text to format with AI!")
+            return
+        }
+
+        viewModelScope.launch {
+            _isAiProcessing.value = true
+            showMessage("AI is formatting text...")
+            val result = geminiAiService.formatAndPunctuate(currentText)
+            _isAiProcessing.value = false
+            result.onSuccess { formatted ->
+                updateTranscriptText(formatted)
+                showMessage("AI Formatting complete!")
+            }.onFailure { err ->
+                showMessage("AI Formatting failed: ${err.message}")
+            }
+        }
+    }
+
+    fun formatHistoryTranscript(transcript: TranscriptEntity) {
+        val rawText = transcript.rawContent.trim()
+        if (rawText.isBlank()) return
+
+        viewModelScope.launch {
+            _isAiProcessing.value = true
+            showMessage("AI is formatting '${transcript.title}'...")
+            val result = geminiAiService.formatAndPunctuate(rawText)
+            _isAiProcessing.value = false
+            result.onSuccess { formatted ->
+                val updated = transcript.copy(formattedContent = formatted)
+                transcriptDao.updateTranscript(updated)
+                showMessage("AI Formatting complete!")
+            }.onFailure { err ->
+                showMessage("AI Formatting failed: ${err.message}")
+            }
+        }
+    }
+
+    fun summarizeHistoryTranscript(transcript: TranscriptEntity) {
+        val rawText = transcript.formattedContent ?: transcript.rawContent
+        if (rawText.isBlank()) return
+
+        viewModelScope.launch {
+            _isAiProcessing.value = true
+            showMessage("AI is generating summary...")
+            val result = geminiAiService.generateSummary(rawText)
+            _isAiProcessing.value = false
+            result.onSuccess { summaryText ->
+                val updated = transcript.copy(summary = summaryText)
+                transcriptDao.updateTranscript(updated)
+                showMessage("AI Summary created!")
+            }.onFailure { err ->
+                showMessage("AI Summary failed: ${err.message}")
+            }
+        }
+    }
+
+    fun updateTranscriptTitle(transcript: TranscriptEntity, newTitle: String) {
+        val cleanTitle = newTitle.trim()
+        if (cleanTitle.isBlank()) return
+
+        viewModelScope.launch {
+            val updated = transcript.copy(title = cleanTitle)
+            transcriptDao.updateTranscript(updated)
+            showMessage("Title updated")
+        }
+    }
+
+    fun copyToClipboard(textToCopy: String? = null) {
+        val text = textToCopy?.trim() ?: _transcriptText.value.trim()
         if (text.isBlank()) {
             showMessage("No text to copy yet!")
             return
@@ -285,17 +389,18 @@ class TranscribeViewModel(application: Application) : AndroidViewModel(applicati
         showMessage("Copied text to clipboard!")
     }
 
-    fun shareTranscript() {
-        val text = _transcriptText.value.trim()
+    fun shareTranscript(textToShare: String? = null, subjectTitle: String? = null) {
+        val text = textToShare?.trim() ?: _transcriptText.value.trim()
         if (text.isBlank()) {
             showMessage("No text to share yet!")
             return
         }
 
         val context = getApplication<Application>()
+        val subject = subjectTitle ?: "Voice Transcript (${formatTime(_elapsedSeconds.value)})"
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Voice Transcript (${formatTime(_elapsedSeconds.value)})")
+            putExtra(Intent.EXTRA_SUBJECT, subject)
             putExtra(Intent.EXTRA_TEXT, text)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }

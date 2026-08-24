@@ -99,6 +99,7 @@ fun MainAppScreen(
     val isCaptchaShowing by viewModel.googleVoiceEngine.isCaptchaShowing.collectAsState()
     val savedTranscripts by viewModel.savedTranscripts.collectAsState()
     val uiMessage by viewModel.uiMessage.collectAsState()
+    val isAiProcessing by viewModel.isAiProcessing.collectAsState()
 
     var hasAudioPermission by remember {
         mutableStateOf(
@@ -193,6 +194,8 @@ fun MainAppScreen(
                             onCopyTranscript = { viewModel.copyToClipboard() },
                             onShareTranscript = { viewModel.shareTranscript() },
                             onSaveTranscript = { viewModel.saveTranscriptToHistory() },
+                            onAiFormatTranscript = { viewModel.formatCurrentTranscript() },
+                            isAiProcessing = isAiProcessing,
                             formatTime = { viewModel.formatTime(it) }
                         )
                     }
@@ -201,8 +204,12 @@ fun MainAppScreen(
                             savedTranscripts = savedTranscripts,
                             onLoadTranscript = { viewModel.loadTranscriptIntoEditor(it) },
                             onDeleteTranscript = { viewModel.deleteSavedTranscript(it) },
-                            onCopyText = { viewModel.copyToClipboard() },
-                            onShareText = { viewModel.shareTranscript() },
+                            onCopyText = { viewModel.copyToClipboard(it) },
+                            onShareText = { viewModel.shareTranscript(it) },
+                            onAiFormatTranscript = { viewModel.formatHistoryTranscript(it) },
+                            onAiSummarizeTranscript = { viewModel.summarizeHistoryTranscript(it) },
+                            onRenameTitle = { entity, newTitle -> viewModel.updateTranscriptTitle(entity, newTitle) },
+                            isAiProcessing = isAiProcessing,
                             formatTime = { viewModel.formatTime(it) }
                         )
                     }
